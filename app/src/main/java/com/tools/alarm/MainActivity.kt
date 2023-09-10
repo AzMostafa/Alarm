@@ -6,6 +6,7 @@ import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +20,11 @@ import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
+import io.reactivex.disposables.Disposables
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 class MainActivity : AppCompatActivity() {
@@ -26,6 +32,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var context: Context
 
     private var calendar: Calendar? = null
+    private lateinit var PTime: String
+
+    private val MStore by lazy {
+        MStore(context)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,7 +59,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitleText("Select Alarm time")
                 .build()
 
-            picker.show(supportFragmentManager, "foxandroid")
+            picker.show(supportFragmentManager, "AndAlarm")
             picker.addOnPositiveButtonClickListener {
                 val time = String.format(
                     "%02d", picker.hour
@@ -56,13 +67,8 @@ class MainActivity : AppCompatActivity() {
                     "%02d",
                     picker.minute
                 )
-                val timeMode = if (picker.hour > 12) {
-                    " PM"
-                } else {
-                    " AM"
-                }
-                val alarmTime = time + timeMode
-                txtTime.text = alarmTime
+                PTime = time
+                txtTime.text = time
 
                 calendar = Calendar.getInstance()
                 calendar!![Calendar.HOUR_OF_DAY] = picker.hour
@@ -83,11 +89,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun setAlarm() {
         if (calendar != null) {
+            var alarmID = 0
+            CoroutineScope(Dispatchers.IO).launch {
+                var loop = true
+                while (loop) {
+                    val mAlarmTime = MStore.getData("AlarmTime_$alarmID")
+                    if (mAlarmTime != "null") {
+                        alarmID++
+                    } else {
+                        loop = false
+                    }
+                }
+                if (alarmID == 0) {
+                    setBootPermission(true)
+                }
+                MStore.setData("AlarmTime_$alarmID", PTime)
+            }
+
             val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(this, AlarmReceiver::class.java)
+            val intent = Intent(context, AlarmReceiver::class.java)
+            intent.action = Constants.NOTIFICATION_ACTION_NAME
+            intent.putExtra("title", "Task Title")
+            intent.putExtra("text", "Task description of Alarm with ID=$alarmID and Time=$PTime.")
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
-                0,
+                alarmID,
                 intent,
                 PendingIntent.FLAG_IMMUTABLE
             )
@@ -97,23 +123,48 @@ class MainActivity : AppCompatActivity() {
                 AlarmManager.INTERVAL_DAY,
                 pendingIntent
             )
-            Toast.makeText(context, "Alarm is set Successfully.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                "Alarm with ID=$alarmID and Time=$PTime has set Successfully.",
+                Toast.LENGTH_SHORT
+            ).show()
         } else {
-            Toast.makeText(context, "Alarm Time is Not set!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Alarm Time is Not Exist!", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun removeAlarm() {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, AlarmReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        alarmManager.cancel(pendingIntent)
-        Toast.makeText(context, "Alarm is Removed Successfully.", Toast.LENGTH_SHORT).show()
+        var alarmID = 0
+        CoroutineScope(Dispatchers.IO).launch {
+            var loop = true
+            while (loop) {
+                val mAlarmTime = MStore.getData("AlarmTime_$alarmID")
+                if (mAlarmTime != "null") {
+                    val alarmManager =
+                        context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    val intent = Intent(context, AlarmReceiver::class.java)
+                    val pendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        0,
+                        intent,
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
+                    alarmManager.cancel(pendingIntent)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            context,
+                            "Alarm with ID=$alarmID is Removed Successfully.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    alarmID++
+                } else {
+                    loop = false
+                    MStore.clearData()
+                    setBootPermission(false)
+                }
+            }
+        }
     }
 
     private fun setPermission() {
@@ -126,6 +177,20 @@ class MainActivity : AppCompatActivity() {
         } else {
             Log.i("LOG", "Permission [POST_NOTIFICATIONS] has been granted by user")
         }
+    }
+
+    private fun setBootPermission(mode: Boolean) {
+        val receiver = ComponentName(context, BootReceiver::class.java)
+        val mPManager = if (mode){
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+        context.packageManager.setComponentEnabledSetting(
+            receiver,
+            mPManager,
+            PackageManager.DONT_KILL_APP
+        )
     }
 
     override fun onRequestPermissionsResult(

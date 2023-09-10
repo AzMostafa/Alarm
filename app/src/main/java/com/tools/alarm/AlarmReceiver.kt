@@ -17,26 +17,32 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context?, intent: Intent?) {
 
-        Log.i("LOG","AlarmReceiver")
+        Log.i("LOG", "AlarmReceiver")
 
         val resultIntent = Intent(context, MainActivity::class.java)
         intent?.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+
+        val mID = intent?.getStringExtra("ID")
+        val mTitle = intent?.getStringExtra("title")
+        val mText = intent?.getStringExtra("text")
+
         val pendingIntent: PendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            mID?.toInt() ?: run { 0 },
             resultIntent,
             FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE
         )
 
         if (context != null) {
-            val notification = NotificationCompat.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
-                .setContentTitle("Task Reminder")
-                .setContentText("Task description")
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentIntent(pendingIntent)
-                .build()
+            val notification =
+                NotificationCompat.Builder(context, Constants.NOTIFICATION_CHANNEL_ID)
+                    .setContentTitle(mTitle)
+                    .setContentText(mText)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setContentIntent(pendingIntent)
+                    .build()
             val notificationManager = NotificationManagerCompat.from(context)
             if (ActivityCompat.checkSelfPermission(
                     context,
